@@ -1,0 +1,58 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Service to deploy
+        type: choice
+        required: true
+        options:
+          - services/python/grades-api
+          - services/python/grades-report
+          - services/web/grades-web
+      version:
+        description: Version (the image tag) to deploy
+        type: string
+        required: true
+      environment:
+        description: Environment to deploy to
+        type: choice
+        required: true
+        options: [development, staging, production]
+
+# One deploy at a time per environment and service; the next one waits its turn
+concurrency:
+  group: deploy-${{ inputs.environment }}-${{ inputs.service }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # commit the new image tag to main
+
+jobs:
+  update-manifests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    env:
+      SERVICE: ${{ inputs.service }}
+      VERSION: ${{ inputs.version }}
+      ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main # the tip of main, not the commit that was built
+
+      - name: Set the image in deploy/
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${SERVICE##*/}:$VERSION"
+          scripts/set-image.sh "$ENVIRONMENT" "$SERVICE" "$image"
+          git --no-pager diff
+
+      # No [skip ci] in the message: a commit pushed with GITHUB_TOKEN starts no workflow anyway,
+      # and a release tag put on a [skip ci] commit would start nothing either.
+      - name: Commit and push
+        if: ${{ !env.ACT }}
+        run: |
+          scripts/commit-push.sh \
+            "chore: deploy ${SERVICE##*/} $VERSION to $ENVIRONMENT" main

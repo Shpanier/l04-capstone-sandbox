@@ -120,3 +120,15 @@ jobs:
           build-args: APP_VERSION=${{ steps.image.outputs.version }}
           cache-from: type=gha,scope=${{ steps.image.outputs.name }}
           cache-to: type=gha,mode=max,scope=${{ steps.image.outputs.name }}
+
+      # Part C: hand the new image to the deploy workflow
+      - name: Start the deploy workflow
+        if: ${{ !env.ACT }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SERVICE: ${{ matrix.service }}
+          VERSION: ${{ steps.image.outputs.version }}
+          ENVIRONMENT: ${{ needs.filter.outputs.environment }}
+        run: |
+          gh workflow run deploy.yaml --ref main \
+            -f service="$SERVICE" -f version="$VERSION" -f environment="$ENVIRONMENT"
