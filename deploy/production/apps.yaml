@@ -40,7 +40,7 @@ spec:
     spec:
       containers:
         - name: grades-web
-          image: ghcr.io/OWNER/grades-web:none # production_services/web/grades-web
+          image: ghcr.io/shpanier/grades-web:0.1.0 # production_services/web/grades-web
           ports:
             - containerPort: 80
 ---
