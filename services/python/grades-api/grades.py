@@ -1,4 +1,4 @@
-PASS_MARK = 50
+PASS_MARK = 60
 
 
 def average(grades: list[float]) -> float:
