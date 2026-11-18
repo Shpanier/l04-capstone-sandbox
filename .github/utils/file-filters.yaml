@@ -7,4 +7,10 @@ services/python/grades-api:
   - "services/python/grades-api/**"
   - ".github/actions/setup-service/**"
 
-# Lab A: add services/python/grades-report and services/web/grades-web here
+services/python/grades-report:
+  - "services/python/grades-report/**"
+  - ".github/actions/setup-service/**"
+
+services/web/grades-web:
+  - "services/web/grades-web/**"
+  - ".github/actions/setup-service/**"
