@@ -1,0 +1,122 @@
+name: Build and Push Images
+
+on:
+  push:
+    branches: [main]
+    paths: ["services/**"]
+    tags: ["**@[0-9]*.[0-9]*.[0-9]*"] # a release: services/python/grades-api@1.0.0
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Service to build
+        type: choice
+        required: true
+        options:
+          - services/python/grades-api
+          - services/python/grades-report
+          - services/web/grades-web
+      version:
+        description: Version for the image (empty = computed from git)
+        type: string
+        required: false
+      environment:
+        description: Environment to deploy to
+        type: choice
+        default: development
+        options: [development, staging, production]
+
+permissions:
+  contents: read
+  packages: write # push to ghcr.io
+  actions: write # start the deploy workflow (part C)
+
+jobs:
+  filter:
+    runs-on: ubuntu-24.04
+    outputs:
+      services: ${{ steps.plan.outputs.services }}
+      environment: ${{ steps.plan.outputs.environment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ github.ref_type == 'branch' && github.event_name == 'push' }}
+      - id: filter
+        if: ${{ github.ref_type == 'branch' && github.event_name == 'push' }}
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: .github/utils/file-filters.yaml
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          CHANGES: ${{ steps.filter.outputs.changes }}
+          INPUT_SERVICE: ${{ inputs.service }}
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            echo "services=[\"$INPUT_SERVICE\"]" >> "$GITHUB_OUTPUT"
+            echo "environment=$INPUT_ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_TYPE" == "tag" ]]; then      # services/python/grades-api@1.0.0
+            echo "services=[\"${REF_NAME%%@*}\"]" >> "$GITHUB_OUTPUT"
+            echo "environment=production" >> "$GITHUB_OUTPUT"
+          else                                       # a push to main
+            echo "services=$CHANGES" >> "$GITHUB_OUTPUT"
+            echo "environment=staging" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
+  build-push:
+    needs: filter
+    if: ${{ needs.filter.outputs.services != '[]' && needs.filter.outputs.services != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.filter.outputs.services) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the whole history and the tags, for git describe
+
+      - name: Compute the version and the image name
+        id: image
+        env:
+          SERVICE: ${{ matrix.service }}
+          ENVIRONMENT: ${{ needs.filter.outputs.environment }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ -n "$INPUT_VERSION" ]]; then
+            version="$INPUT_VERSION"
+          elif [[ "$ENVIRONMENT" == "production" ]]; then
+            version=$(scripts/version.sh "$SERVICE")
+          else
+            version=$(scripts/version.sh "$SERVICE" --extended)
+          fi
+          name="${SERVICE##*/}"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$name"
+          {
+            echo "name=$name"
+            echo "version=$version"
+            echo "ref=$image:$version"
+          } >> "$GITHUB_OUTPUT"
+          echo "image: $image:$version ($ENVIRONMENT)"
+          echo "### $SERVICE: \`$image:$version\` ($ENVIRONMENT)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        if: ${{ !env.ACT }}
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.service }}
+          push: ${{ !env.ACT }}
+          tags: ${{ steps.image.outputs.ref }}
+          build-args: APP_VERSION=${{ steps.image.outputs.version }}
+          cache-from: type=gha,scope=${{ steps.image.outputs.name }}
+          cache-to: type=gha,mode=max,scope=${{ steps.image.outputs.name }}
