@@ -1,4 +1,4 @@
-"""grades-report: reads a CSV of grades and prints a one-line summary.
+"""grades-report (nightly): reads a CSV of grades and prints a one-line summary.
 
     python report.py data/grades.csv
 """
