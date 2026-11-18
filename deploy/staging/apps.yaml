@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: grades-api
-          image: ghcr.io/shpanier/grades-api:0.1.0-0005-gcac2151 # staging_services/python/grades-api
+          image: ghcr.io/shpanier/grades-api:0.2.0-0000-ga2d0ba5 # staging_services/python/grades-api
           ports:
             - containerPort: 8000
 ---
