@@ -1,0 +1,59 @@
+name: Run Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths: ["services/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read # paths-filter asks the API which files a pull request changed
+
+jobs:
+  filter:
+    runs-on: ubuntu-24.04
+    outputs:
+      services: ${{ steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: .github/utils/file-filters.yaml
+      - run: |
+          echo "changed services: $CHANGES"
+        env:
+          CHANGES: ${{ steps.filter.outputs.changes }}
+
+  run-tests:
+    needs: filter
+    if: ${{ needs.filter.outputs.services != '[]' && needs.filter.outputs.services != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.filter.outputs.services) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-service
+        with:
+          service_path: ${{ matrix.service }}
+          install_python: ${{ startsWith(matrix.service, 'services/python/') }}
+      - working-directory: ${{ matrix.service }}
+        run: make install-ci
+      - working-directory: ${{ matrix.service }}
+        run: make test
+
+  # The check to require before a merge. It is skipped when everything passed
+  # (and a skipped check counts as passed), and fails when a job failed.
+  required-check:
+    needs: [filter, run-tests]
+    if: ${{ cancelled() || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "::error::A job this check depends on failed or was cancelled."
+          exit 1
