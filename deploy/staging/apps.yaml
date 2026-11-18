@@ -58,4 +58,4 @@ spec:
           restartPolicy: Never
           containers:
             - name: grades-report
-              image: ghcr.io/OWNER/grades-report:none # staging_services/python/grades-report
+              image: ghcr.io/shpanier/grades-report:0.0.0-0006-g8d455d8 # staging_services/python/grades-report
